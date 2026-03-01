@@ -1,0 +1,59 @@
+# ==============================================================================
+# Easy Handeye2 Calibration Configuration
+# ==============================================================================
+# This YAML file contains all configuration parameters for hand-eye calibration.
+# Modify these settings according to your robot and camera setup.
+# ==============================================================================
+
+# Calibration settings
+calibration:
+  # Unique name for this calibration (used for saving/loading)
+  name: "my_handeye_calibration"
+  
+  # Calibration type:
+  #   true  = eye-in-hand (camera mounted on robot end-effector)
+  #   false = eye-on-base (camera fixed relative to robot base)
+  eye_on_hand: true
+  
+  # Robot TF frames
+  robot_base_frame: "base_footprint"        # Robot base frame name
+  robot_effector_frame: "link5"        # Robot end-effector frame name
+  
+  # Tracking system TF frames
+  tracking_base_frame: "camera_color_optical_frame"   # Camera optical frame name
+  tracking_marker_frame: "object"      # Marker frame name
+
+# Algorithm settings
+algorithm:
+  # Available algorithms: Tsai-Lenz, Park, Horaud, Andreff, Daniilidis, Constrained
+  # Tsai-Lenz is the most commonly used and recommended
+  # Constrained: Use when camera has limited DOF relative to robot (e.g., 4 DOF)
+  name: "Constrained"
+
+# Constraint settings (used when algorithm is "Constrained")
+# When camera-robot relative DOF is limited (e.g., 4 DOF), 
+# you can fix some known parameters to solve for the remaining unknowns.
+# All angles are in radians.
+constraints:
+  # Enable constrained calibration
+  enabled: true
+  
+  # Fixed rotation angles (camera relative to link5)
+  # Set to null or remove the line if the parameter should be solved
+  roll: null          # Fixed to 0 (camera x-axis parallel to link5 x-axis)
+  pitch: 0.0         # Fixed to 0 (camera y-axis parallel to link5 y-axis)
+  yaw: 0.0          # To be solved (rotation around z-axis)
+  
+  # Fixed translation components (camera relative to link5, in meters)
+  # Set to null or remove the line if the parameter should be solved
+  x: null            # To be solved
+  y: 0.0             # Fixed to 0 (camera centered on link5 y-axis)
+  z: null            # To be solved
+
+# Publisher settings (used by handeye_calibration_publisher node)
+publisher:
+  # Publish as static TF (true) or dynamic TF (false)
+  publish_static_tf: true
+  
+  # Publish rate in Hz (only used if publish_static_tf is false)
+  publish_rate: 50.0

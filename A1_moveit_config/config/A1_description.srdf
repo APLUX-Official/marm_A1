@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--This does not replace URDF, and is not an extension of URDF.
+    This is a format for representing semantic information about the robot structure.
+    A URDF file must exist for this robot as well, where the joints and the links that are referenced are defined
+-->
+<robot name="A1_description">
+    <!--GROUPS: Representation of a set of joints and links. This can be useful for specifying DOF to plan for, defining arms, end effectors, etc-->
+    <!--LINKS: When a link is specified, the parent joint of that link (if it exists) is automatically included-->
+    <!--JOINTS: When a joint is specified, the child link of that joint (which will always exist) is automatically included-->
+    <!--CHAINS: When a chain is specified, all the links along the chain (including endpoints) are included in the group. Additionally, all the joints that are parents to included links are also included. This means that joints along the chain and the parent joint of the base link are included in the group-->
+    <!--SUBGROUPS: Groups can also be formed by referencing to already defined group names-->
+    <group name="marm_group">
+        <chain base_link="base_footprint" tip_link="link6"/>
+    </group>
+    <!--GROUP STATES: Purpose: Define a named state for a particular group, in terms of joint values. This is useful to define states like 'folded arms'-->
+    <group_state name="home" group="marm_group">
+        <joint name="joint1" value="0"/>
+        <joint name="joint2" value="0"/>
+        <joint name="joint3" value="0"/>
+        <joint name="joint4" value="0"/>
+        <joint name="joint5" value="0"/>
+    </group_state>
+    <group_state name="stand" group="marm_group">
+        <joint name="joint1" value="-8.31964e-05"/>
+        <joint name="joint2" value="0.114233"/>
+        <joint name="joint3" value="1.14391"/>
+        <joint name="joint4" value="-1.5993"/>
+        <joint name="joint5" value="-4.28136e-05"/>
+    </group_state>
+
+    <group_state name="put" group="marm_group">
+        <joint name="joint1" value="-1.54442545"/>
+        <joint name="joint2" value="-0.50404207"/>
+        <joint name="joint3" value="1.987473774"/>
+        <joint name="joint4" value="0.224630811"/>
+        <joint name="joint5" value="0.016073047456"/>
+    </group_state>
+    <group_state name="get" group="marm_group">
+        <joint name="joint1" value="0.0"/>
+        <joint name="joint2" value="-0.863456673570894"/>
+        <joint name="joint3" value="0.9399395721745"/>
+        <joint name="joint4" value="-0.563498624795"/>
+        <joint name="joint5" value="-0.04999567589"/>
+    </group_state>
+
+    <!--DISABLE COLLISIONS: By default it is assumed that any link of the robot could potentially come into collision with any other link in the robot. This tag disables collision checking between a specified pair of links. -->
+    <disable_collisions link1="base_link" link2="link1" reason="Adjacent"/>
+    <disable_collisions link1="camera_link" link2="link4" reason="Never"/>
+    <disable_collisions link1="camera_link" link2="link5" reason="Adjacent"/>
+    <disable_collisions link1="camera_link" link2="link6" reason="Never"/>
+    <disable_collisions link1="link1" link2="link2" reason="Adjacent"/>
+    <disable_collisions link1="link2" link2="link3" reason="Adjacent"/>
+    <disable_collisions link1="link3" link2="link4" reason="Adjacent"/>
+    <disable_collisions link1="link3" link2="link6" reason="Never"/>
+    <disable_collisions link1="link4" link2="link5" reason="Adjacent"/>
+    <disable_collisions link1="link4" link2="link6" reason="Never"/>
+    <disable_collisions link1="link5" link2="link6" reason="Adjacent"/>
+</robot>

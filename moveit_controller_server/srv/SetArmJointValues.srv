@@ -1,0 +1,6 @@
+
+string arm_name
+float64[5] arm_joint_values
+---
+bool arm_status
+string message

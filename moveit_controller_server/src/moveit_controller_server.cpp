@@ -1,0 +1,735 @@
+#include "custom_interface/srv/set_arm_action.hpp"
+#include "custom_interface/srv/set_arm_joint_values.hpp"
+#include "custom_interface/srv/set_arm_target_pose.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include <Eigen/Geometry>
+#include <memory>
+#include <moveit/move_group_interface/move_group_interface.h>
+#include <moveit/planning_scene_interface/planning_scene_interface.h>
+#include <moveit/robot_state/robot_state.h>
+#include <moveit/robot_trajectory/robot_trajectory.h>
+#include <moveit/trajectory_processing/iterative_time_parameterization.h>
+#include <moveit/trajectory_processing/time_optimal_trajectory_generation.h>
+#include <mutex>                // 添加互斥锁头文件
+#include <rclcpp/executors.hpp> // 添加多线程执行器头文件
+#include <string>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
+#include <vector>
+
+class FK_Control_Server : public rclcpp::Node
+{
+public:
+    explicit FK_Control_Server(const std::string &name) : Node(name)
+    {
+        RCLCPP_INFO(this->get_logger(), "节点已启动: %s", name.c_str());
+
+        // 创建服务
+        set_arm_action_server_ =
+            this->create_service<custom_interface::srv::SetArmAction>(
+                "set_arm_action",
+                std::bind(&FK_Control_Server::set_arm_action_callback, this,
+                          std::placeholders::_1, std::placeholders::_2));
+
+        set_arm_joint_values_server_ =
+            this->create_service<custom_interface::srv::SetArmJointValues>(
+                "set_arm_joint_values",
+                std::bind(&FK_Control_Server::set_arm_joint_values_callback,
+                          this, std::placeholders::_1, std::placeholders::_2));
+
+        set_arm_target_pose_server_ =
+            this->create_service<custom_interface::srv::SetArmTargetPose>(
+                "set_arm_target_pose",
+                std::bind(&FK_Control_Server::set_arm_target_pose_callback,
+                          this, std::placeholders::_1, std::placeholders::_2));
+
+        RCLCPP_INFO(this->get_logger(), "所有服务已创建并启动");
+    }
+
+private:
+    // 声明服务
+    rclcpp::Service<custom_interface::srv::SetArmAction>::SharedPtr
+        set_arm_action_server_;
+    rclcpp::Service<custom_interface::srv::SetArmJointValues>::SharedPtr
+        set_arm_joint_values_server_;
+    rclcpp::Service<custom_interface::srv::SetArmTargetPose>::SharedPtr
+        set_arm_target_pose_server_;
+
+    // 缓存MoveGroupInterface对象的映射
+    std::map<std::string,
+             std::shared_ptr<moveit::planning_interface::MoveGroupInterface>>
+        move_group_cache_;
+
+    // MoveIt错误代码解释函数
+    static std::string getMoveItErrorString(const moveit::core::MoveItErrorCode &error_code)
+    {
+        switch (error_code.val)
+        {
+        case moveit::core::MoveItErrorCode::SUCCESS:
+            return "成功";
+        case moveit::core::MoveItErrorCode::FAILURE:
+            return "一般性失败";
+        case moveit::core::MoveItErrorCode::PLANNING_FAILED:
+            return "规划失败 - 无法找到可行路径";
+        case moveit::core::MoveItErrorCode::INVALID_MOTION_PLAN:
+            return "无效的运动计划";
+        case moveit::core::MoveItErrorCode::MOTION_PLAN_INVALIDATED_BY_ENVIRONMENT_CHANGE:
+            return "运动计划因环境变化而无效";
+        case moveit::core::MoveItErrorCode::CONTROL_FAILED:
+            return "控制失败";
+        case moveit::core::MoveItErrorCode::UNABLE_TO_AQUIRE_SENSOR_DATA:
+            return "无法获取传感器数据";
+        case moveit::core::MoveItErrorCode::TIMED_OUT:
+            return "超时";
+        case moveit::core::MoveItErrorCode::PREEMPTED:
+            return "被抢占/中止";
+        case moveit::core::MoveItErrorCode::START_STATE_IN_COLLISION:
+            return "起始状态存在碰撞";
+        case moveit::core::MoveItErrorCode::START_STATE_VIOLATES_PATH_CONSTRAINTS:
+            return "起始状态违反路径约束";
+        case moveit::core::MoveItErrorCode::GOAL_IN_COLLISION:
+            return "目标状态存在碰撞";
+        case moveit::core::MoveItErrorCode::GOAL_VIOLATES_PATH_CONSTRAINTS:
+            return "目标状态违反路径约束";
+        case moveit::core::MoveItErrorCode::GOAL_CONSTRAINTS_VIOLATED:
+            return "目标约束被违反";
+        case moveit::core::MoveItErrorCode::INVALID_GROUP_NAME:
+            return "无效的组名称";
+        case moveit::core::MoveItErrorCode::INVALID_GOAL_CONSTRAINTS:
+            return "无效的目标约束";
+        case moveit::core::MoveItErrorCode::INVALID_ROBOT_STATE:
+            return "无效的机器人状态";
+        case moveit::core::MoveItErrorCode::INVALID_LINK_NAME:
+            return "无效的连杆名称";
+        case moveit::core::MoveItErrorCode::INVALID_OBJECT_NAME:
+            return "无效的对象名称";
+        case moveit::core::MoveItErrorCode::FRAME_TRANSFORM_FAILURE:
+            return "坐标系变换失败";
+        case moveit::core::MoveItErrorCode::COLLISION_CHECKING_UNAVAILABLE:
+            return "碰撞检测不可用";
+        case moveit::core::MoveItErrorCode::ROBOT_STATE_STALE:
+            return "机器人状态过时";
+        case moveit::core::MoveItErrorCode::SENSOR_INFO_STALE:
+            return "传感器信息过时";
+        case moveit::core::MoveItErrorCode::NO_IK_SOLUTION:
+            return "无逆运动学解";
+        default:
+            return "未知错误代码: " + std::to_string(error_code.val);
+        }
+    }
+
+    // 四元数转欧拉角（角度），orientation_顺序为[x, y, z, w]
+    static void Orientation2RPY(const std::vector<double> &orientation_,
+                                double &roll, double &pitch, double &yaw)
+    {
+        if (orientation_.size() != 4)
+        {
+            roll = pitch = yaw = 0.0;
+            return;
+        }
+        tf2::Quaternion q(orientation_[0], orientation_[1], orientation_[2],
+                          orientation_[3]);
+        tf2::Matrix3x3 m(q);
+        m.getRPY(roll, pitch, yaw);
+        // 转为角度
+        roll = roll * 180.0 / M_PI;
+        pitch = pitch * 180.0 / M_PI;
+        yaw = yaw * 180.0 / M_PI;
+    }
+
+    // 欧拉角（弧度）转四元数，orientation_顺序为[x, y, z, w]
+    static void RPY2Orientation(double roll, double pitch, double yaw,
+                                std::vector<double> &orientation_)
+    {
+        tf2::Quaternion q;
+        q.setRPY(roll * M_PI / 180.0, pitch * M_PI / 180.0, yaw * M_PI / 180.0);
+        orientation_.resize(4);
+        orientation_[0] = q.x();
+        orientation_[1] = q.y();
+        orientation_[2] = q.z();
+        orientation_[3] = q.w();
+    }
+
+    // 获取或创建MoveGroupInterface对象
+    std::shared_ptr<moveit::planning_interface::MoveGroupInterface> get_move_group(const std::string &arm_name)
+    {
+        if (move_group_cache_.find(arm_name) == move_group_cache_.end())
+        {
+            try
+            {
+                move_group_cache_[arm_name] = std::make_shared<
+                    moveit::planning_interface::MoveGroupInterface>(
+                    this->shared_from_this(), arm_name);
+                RCLCPP_INFO(this->get_logger(),
+                            "已为机械臂 '%s' 创建MoveGroupInterface",
+                            arm_name.c_str());
+            }
+            catch (const std::exception &e)
+            {
+                RCLCPP_ERROR(this->get_logger(),
+                             "创建MoveGroupInterface失败: %s", e.what());
+                return nullptr;
+            }
+        }
+        // 优化机械臂速度
+        // TODO 优化机械臂速度
+        auto move_group = move_group_cache_[arm_name];
+        move_group->setMaxVelocityScalingFactor(1.0);     // 设置最大速度缩放因子
+        move_group->setMaxAccelerationScalingFactor(1.0); // 设置最大加速度缩放因子
+
+        // 设置规划参数（根据 TRRT 的表现调整）
+        move_group->setPlanningTime(1.0);      // 减少规划时间，TRRT 通常更快
+        move_group->setNumPlanningAttempts(20); // 适当减少尝试次数
+        move_group->setGoalPositionTolerance(0.03);
+        move_group->setGoalOrientationTolerance(0.3);
+
+        // 设置规划器（使用表现更好的规划器）
+        move_group->setPlannerId("TRRT"); // 改用 TRRT，在您的测试中表现更好
+
+        // 确保规划坐标系正确
+        move_group->setPoseReferenceFrame("base_footprint");
+
+        // 清除所有路径约束
+        move_group->clearPathConstraints();
+        move_group->clearPoseTargets();
+
+        RCLCPP_INFO(this->get_logger(), "MoveIt Demo 初始化完成!");
+        RCLCPP_INFO(this->get_logger(), "规划坐标系: %s", move_group->getPlanningFrame().c_str());
+        RCLCPP_INFO(this->get_logger(), "末端执行器: %s", move_group->getEndEffectorLink().c_str());
+        RCLCPP_INFO(this->get_logger(), "规划器: %s", move_group->getPlannerId().c_str());
+
+        // 等待一段时间确保所有服务就绪
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+
+        return move_group;
+    }
+
+    // 通用规划和执行函数
+    bool plan_and_execute(
+        std::shared_ptr<moveit::planning_interface::MoveGroupInterface>
+            move_group,
+        std::string &message)
+    {
+        if (!move_group)
+        {
+            message = "无效的MoveGroupInterface对象";
+            return false;
+        }
+
+
+
+
+        moveit::planning_interface::MoveGroupInterface::Plan my_plan;
+        RCLCPP_INFO(this->get_logger(), "开始规划路径...");
+
+        // 使用超时规划，提高稳定性
+        auto start_time = std::chrono::system_clock::now();
+        auto plan_result = move_group->plan(my_plan);
+        auto end_time = std::chrono::system_clock::now();
+        std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+        RCLCPP_INFO(this->get_logger(), "规划用时: %.3f秒",
+                    elapsed_seconds.count());
+
+        bool success = (plan_result == moveit::core::MoveItErrorCode::SUCCESS);
+        if (success)
+        {
+            size_t trajectory_points = my_plan.trajectory_.joint_trajectory.points.size();
+            RCLCPP_INFO(this->get_logger(), "生成轨迹包含 %zu 个路径点", trajectory_points);
+
+            RCLCPP_INFO(this->get_logger(), "规划成功，开始执行...");
+            auto execution_result = move_group->execute(my_plan);
+
+            if (execution_result == moveit::core::MoveItErrorCode::SUCCESS)
+            {
+                RCLCPP_INFO(this->get_logger(), "执行成功");
+                message = "规划和执行成功";
+                return true;
+            }
+            else
+            {
+                std::string error_explanation = getMoveItErrorString(execution_result);
+                message = "执行失败，错误码: " + std::to_string(execution_result.val) + " (" + error_explanation + ")";
+                RCLCPP_ERROR(this->get_logger(), "%s", message.c_str());
+                return false;
+            }
+        }
+        else
+        {
+            std::string error_explanation = getMoveItErrorString(plan_result);
+            RCLCPP_ERROR(this->get_logger(), "路径规划失败! 错误代码: %d (%s)", plan_result.val, error_explanation.c_str());
+
+            // 尝试不同的规划器（调整顺序，优先使用表现更好的规划器）
+            std::vector<std::string> backup_planners = {"TRRT", "BKPIECE", "RRTstar", "EST", "PRMstar", "PRM"};
+            std::string original_planner = move_group->getPlannerId();
+
+            for (const auto &planner : backup_planners)
+            {
+                if (planner == original_planner)
+                    continue; // 跳过当前规划器
+
+                RCLCPP_INFO(this->get_logger(), "尝试使用规划器: %s", planner.c_str());
+                move_group->setPlannerId(planner);
+
+                auto start_time = std::chrono::system_clock::now();
+                auto backup_error_code = move_group->plan(my_plan);
+                auto end_time = std::chrono::system_clock::now();
+                std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+
+                RCLCPP_INFO(this->get_logger(), "规划用时: %.3f秒", elapsed_seconds.count());
+
+                if (backup_error_code == moveit::core::MoveItErrorCode::SUCCESS)
+                {
+                    RCLCPP_INFO(this->get_logger(), "使用规划器 %s 规划成功!", planner.c_str());
+
+                    // 执行运动
+                    RCLCPP_INFO(this->get_logger(), "开始执行运动...");
+                    auto execute_result = move_group->execute(my_plan);
+
+                    // 恢复原始规划器
+                    move_group->setPlannerId(original_planner);
+
+                    if (execute_result == moveit::core::MoveItErrorCode::SUCCESS)
+                    {
+                        RCLCPP_INFO(this->get_logger(), "运动执行成功!");
+                        return true;
+                    }
+                    else
+                    {
+                        RCLCPP_ERROR(this->get_logger(), "运动执行失败! 错误代码: %d", execute_result.val);
+                        return false;
+                    }
+                }else{
+                    std::string backup_error_explanation = getMoveItErrorString(backup_error_code);
+                    RCLCPP_WARN(this->get_logger(), "规划器 %s 失败: %s", planner.c_str(), backup_error_explanation.c_str());
+                }
+            }
+            // 恢复原始规划器
+            // move_group->setPlannerId(original_planner);
+
+            RCLCPP_ERROR(this->get_logger(), "所有规划器都失败了");
+            message = error_explanation + " - 已尝试所有备用规划器，均未成功";
+            return false;
+        }
+    }
+
+    // 使用备用规划器尝试规划
+    bool plan_with_backup_planners(
+        std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group,
+        moveit::planning_interface::MoveGroupInterface::Plan &my_plan,
+        std::string &message)
+    {
+        // 备用规划器列表
+        std::vector<std::string> backup_planners = {"RRTstar", "BKPIECE", "EST", "LBKPIECE", "PRM", "TRRT"};
+        std::string original_planner = move_group->getPlannerId();
+
+        RCLCPP_INFO(this->get_logger(), "原始规划器 %s 失败，尝试备用规划器...", original_planner.c_str());
+
+        for (const auto &planner : backup_planners)
+        {
+            if (planner == original_planner)
+                continue; // 跳过当前规划器
+
+            RCLCPP_INFO(this->get_logger(), "尝试使用规划器: %s", planner.c_str());
+
+            try
+            {
+                move_group->setPlannerId(planner);
+                auto backup_error_code = move_group->plan(my_plan);
+
+                if (backup_error_code == moveit::core::MoveItErrorCode::SUCCESS)
+                {
+                    RCLCPP_INFO(this->get_logger(), "使用规划器 %s 规划成功!", planner.c_str());
+
+                    // 执行运动
+                    RCLCPP_INFO(this->get_logger(), "开始执行运动...");
+                    auto execute_result = move_group->execute(my_plan);
+
+                    // 恢复原始规划器
+                    move_group->setPlannerId(original_planner);
+
+                    if (execute_result == moveit::core::MoveItErrorCode::SUCCESS)
+                    {
+                        RCLCPP_INFO(this->get_logger(), "运动执行成功!");
+                        message = "使用备用规划器 " + planner + " 成功完成任务";
+                        return true;
+                    }
+                    else
+                    {
+                        RCLCPP_ERROR(this->get_logger(), "运动执行失败! 错误代码: %d", execute_result.val);
+                        message = "规划成功但执行失败，错误码: " + std::to_string(execute_result.val);
+                        // 恢复原始规划器
+                        move_group->setPlannerId(original_planner);
+                        return false;
+                    }
+                }
+            }
+            catch (const std::exception &e)
+            {
+                RCLCPP_WARN(this->get_logger(), "规划器 %s 异常: %s", planner.c_str(), e.what());
+                continue;
+            }
+        }
+
+        // 恢复原始规划器
+        move_group->setPlannerId(original_planner);
+        RCLCPP_ERROR(this->get_logger(), "所有规划器都失败了");
+        message += " - 已尝试所有备用规划器，均未成功";
+        return false;
+    }
+
+    // INFO 固定action控制
+    void set_arm_action_callback(
+        const std::shared_ptr<custom_interface::srv::SetArmAction::Request>
+            request,
+        std::shared_ptr<custom_interface::srv::SetArmAction::Response>
+            response)
+    {
+
+        std::cout << "\033[1;32m" << std::endl;
+        std::cout << "收到set_arm_action服务请求" << std::endl;
+        std::cout << "机械臂名称: " << request->arm_name << ", 动作名称: " << request->arm_action << std::endl;
+        std::cout << "\033[0m" << std::endl;
+
+        if (request->arm_name.empty() || request->arm_action.empty())
+        {
+            response->arm_status = false;
+            response->message = "机械臂名称或动作名称为空";
+            RCLCPP_ERROR(this->get_logger(), "%s", response->message.c_str());
+            return;
+        }
+
+        // 获取或创建MoveGroupInterface
+        auto move_group = get_move_group(request->arm_name);
+        if (!move_group)
+        {
+            response->arm_status = false;
+            response->message = "创建机械臂控制接口失败";
+            return;
+        }
+
+        try
+        {
+            // 根据请求的动作名称设置目标
+            move_group->setNamedTarget(request->arm_action);
+
+            // 规划和执行动作
+            response->arm_status =
+                plan_and_execute(move_group, response->message);
+        }
+        catch (const std::exception &e)
+        {
+            response->arm_status = false;
+            response->message = std::string("动作控制异常: ") + e.what();
+            RCLCPP_ERROR(this->get_logger(), "%s", response->message.c_str());
+        }
+    }
+
+    // INFO 关节角度控制
+    void set_arm_joint_values_callback(
+        const std::shared_ptr<custom_interface::srv::SetArmJointValues::Request>
+            request,
+        std::shared_ptr<custom_interface::srv::SetArmJointValues::Response>
+            response)
+    {
+        std::cout << "\033[32m" << std::endl;
+        std::cout << "收到set_arm_joint_values服务请求" << std::endl;
+        std::cout << "机械臂名称: " << request->arm_name << std::endl;
+
+        if (request->arm_name.empty())
+        {
+            response->arm_status = false;
+            response->message = "机械臂名称为空";
+            RCLCPP_ERROR(this->get_logger(), "%s", response->message.c_str());
+            return;
+        }
+
+        const auto &joint_array = request->arm_joint_values;
+        std::vector<double> joint_group_positions(joint_array.begin(),
+                                                  joint_array.end());
+
+        if (joint_group_positions.empty())
+        {
+            RCLCPP_WARN(this->get_logger(), "接收到空的关节值列表");
+            response->arm_status = false;
+            response->message = "接收到空的关节值列表";
+            return;
+        }
+
+        // 日志输出关节值
+        std::stringstream joint_values_ss;
+        joint_values_ss << "关节值: [";
+        for (size_t i = 0; i < joint_group_positions.size(); ++i)
+        {
+            joint_values_ss << joint_group_positions[i];
+            if (i < joint_group_positions.size() - 1)
+            {
+                joint_values_ss << ", ";
+            }
+        }
+        joint_values_ss << "]";
+
+        // RCLCPP_INFO(this->get_logger(), "%s", joint_values_ss.str().c_str());
+        std::cout << joint_values_ss.str() << std::endl;
+
+        std::cout << "\033[0m" << std::endl;
+
+        // 获取或创建MoveGroupInterface
+        auto move_group = get_move_group(request->arm_name);
+        if (!move_group)
+        {
+            response->arm_status = false;
+            response->message = "创建机械臂控制接口失败";
+            return;
+        }
+
+        // 确认关节数量是否匹配
+        auto joint_names = move_group->getJointNames();
+        if (joint_group_positions.size() != joint_names.size())
+        {
+            response->arm_status = false;
+            response->message = "关节数量不匹配：提供了 " +
+                                std::to_string(joint_group_positions.size()) +
+                                " 个关节值，但机械臂有 " +
+                                std::to_string(joint_names.size()) + " 个关节";
+            RCLCPP_ERROR(this->get_logger(), "%s", response->message.c_str());
+            return;
+        }
+
+        try
+        {
+            move_group->setJointValueTarget(joint_group_positions);
+            response->arm_status =
+                plan_and_execute(move_group, response->message);
+        }
+        catch (const std::exception &e)
+        {
+            response->arm_status = false;
+            response->message = std::string("关节角度控制异常: ") + e.what();
+            RCLCPP_ERROR(this->get_logger(), "%s", response->message.c_str());
+        }
+    }
+
+    // INFO 位姿控制
+    void set_arm_target_pose_callback(
+        const std::shared_ptr<custom_interface::srv::SetArmTargetPose::Request>
+            request,
+        std::shared_ptr<custom_interface::srv::SetArmTargetPose::Response>
+            response)
+    {
+
+        std::cout << "\033[1;32m" << std::endl;
+        std::cout << "收到set_arm_target_pose服务请求" << std::endl;
+        std::cout << "机械臂名称: " << request->arm_name << std::endl;
+        std::cout << "\033[0m" << std::endl;
+
+        if (request->arm_name.empty())
+        {
+            response->arm_status = false;
+            response->message = "机械臂名称为空";
+            RCLCPP_ERROR(this->get_logger(), "%s", response->message.c_str());
+            return;
+        }
+
+        // 确认姿态的有效性 (四元数范数应接近1)
+        const auto &q = request->arm_target_pose.orientation;
+        double norm = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+        if (std::abs(norm - 1.0) > 0.01)
+        {
+            RCLCPP_WARN(this->get_logger(),
+                        "四元数不是单位四元数，范数为: %.3f", norm);
+        }
+
+        // 使用ANSI转义序列打印彩色日志（蓝色）
+        printf("\033[1;32m目标位置: [%.3f, %.3f, %.3f], 姿态: [%.3f, %.3f, "
+               "%.3f, %.3f]\033[0m\n",
+               request->arm_target_pose.position.x,
+               request->arm_target_pose.position.y,
+               request->arm_target_pose.position.z,
+               request->arm_target_pose.orientation.x,
+               request->arm_target_pose.orientation.y,
+               request->arm_target_pose.orientation.z,
+               request->arm_target_pose.orientation.w);
+        RCLCPP_INFO(
+            this->get_logger(),
+            "position偏移量:[%.3f, %.3f,%.3f], rpy偏移量:[%.3f, %.3f, %.3f]",
+            request->offset_param[0], request->offset_param[1],
+            request->offset_param[2], request->offset_param[3],
+            request->offset_param[4], request->offset_param[5]);
+
+        try
+        {
+
+            geometry_msgs::msg::Pose offset_target_pose;
+            geometry_msgs::msg::Pose target_pose =
+                request->arm_target_pose; // 目标位姿
+            // 将目标四元数转化为rpy
+            double target_roll, target_pitch, target_yaw;
+            Orientation2RPY(
+                {target_pose.orientation.x, target_pose.orientation.y,
+                 target_pose.orientation.z, target_pose.orientation.w},
+                target_roll, target_pitch, target_yaw);
+            // 进行rpy调整
+            std::vector<double> offset_target_que;
+            RPY2Orientation(target_roll + request->offset_param[3],
+                            target_pitch + request->offset_param[4],
+                            target_yaw + request->offset_param[5],
+                            offset_target_que);
+
+            // ====== 关键修改：将偏移量从目标点坐标系变换到全局坐标系 ======
+            tf2::Quaternion q_target(
+                target_pose.orientation.x, target_pose.orientation.y,
+                target_pose.orientation.z, target_pose.orientation.w);
+            tf2::Matrix3x3 rot_matrix(q_target);
+
+            // 构造局部偏移向量
+            tf2::Vector3 local_offset(request->offset_param[0],
+                                      request->offset_param[1],
+                                      request->offset_param[2]);
+
+            // 变换到全局坐标系
+            tf2::Vector3 global_offset = rot_matrix * local_offset;
+
+            // 新的目标位姿
+            offset_target_pose.position.x =
+                target_pose.position.x + global_offset.x();
+            offset_target_pose.position.y =
+                target_pose.position.y + global_offset.y();
+            offset_target_pose.position.z =
+                target_pose.position.z + global_offset.z();
+            offset_target_pose.orientation.x = offset_target_que[0];
+            offset_target_pose.orientation.y = offset_target_que[1];
+            offset_target_pose.orientation.z = offset_target_que[2];
+            offset_target_pose.orientation.w = offset_target_que[3];
+
+            // 使用ANSI转义序列打印彩色日志（绿色）
+            printf("\033[1;32moffset目标位置: [%.3f, %.3f, %.3f], offset姿态: "
+                   "[%.3f, %.3f, %.3f, %.3f]\033[0m\n",
+                   offset_target_pose.position.x, offset_target_pose.position.y,
+                   offset_target_pose.position.z,
+                   offset_target_pose.orientation.x,
+                   offset_target_pose.orientation.y,
+                   offset_target_pose.orientation.z,
+                   offset_target_pose.orientation.w);
+
+            // 获取或创建MoveGroupInterface
+            auto move_group = get_move_group(request->arm_name);
+
+            if (!move_group)
+            {
+                response->arm_status = false;
+                response->message = "创建机械臂控制接口失败";
+                return;
+            }
+
+            // 清除之前的目标和约束
+            move_group->clearPoseTargets();
+            move_group->clearPathConstraints();
+
+            // 确保起始状态是当前状态
+            RCLCPP_INFO(this->get_logger(), "设置起始状态为当前状态...");
+            move_group->setStartStateToCurrentState();
+
+            // 设置目标位姿，指定坐标系
+            RCLCPP_INFO(this->get_logger(), "设置目标位姿...");
+            move_group->setPoseTarget(offset_target_pose, move_group->getEndEffectorLink());
+
+            // 设置速度和加速度缩放因子
+            move_group->setMaxVelocityScalingFactor(0.5);
+            move_group->setMaxAccelerationScalingFactor(0.1);
+            // 验证目标位姿
+            RCLCPP_INFO(this->get_logger(), "目标位姿已设置在坐标系: %s", move_group->getPoseReferenceFrame().c_str());
+            // 规划路径
+            RCLCPP_INFO(this->get_logger(), "开始规划路径...");
+            RCLCPP_INFO(this->get_logger(), "使用规划器: %s", move_group->getPlannerId().c_str());
+
+            // 笛卡尔坐标系
+            if (request->use_cartesian)
+            {
+                std::cout << "\033[1;32m 使用笛卡尔坐标系： " << std::endl;
+                // ======= 新增：使用笛卡尔路径规划 =======
+                std::vector<geometry_msgs::msg::Pose> waypoints;
+                waypoints.push_back(offset_target_pose);
+
+                moveit_msgs::msg::RobotTrajectory trajectory_msg;
+                const double eef_step = 0.005;     // 1cm 步长
+                const double jump_threshold = 0.0; // 不限制关节跳跃
+                double fraction = move_group->computeCartesianPath(
+                    waypoints, eef_step, jump_threshold, trajectory_msg);
+
+                if (fraction < 0.5)
+                {
+                    response->arm_status = false;
+                    response->message = "笛卡尔路径规划失败，规划完成率: " +
+                                        std::to_string(fraction);
+                    RCLCPP_ERROR(this->get_logger(), "%s",
+                                 response->message.c_str());
+                    return;
+                }
+
+                moveit::planning_interface::MoveGroupInterface::Plan
+                    cartesian_plan;
+                cartesian_plan.trajectory_ = trajectory_msg;
+
+                RCLCPP_INFO(this->get_logger(),
+                            "笛卡尔路径规划成功，开始执行...");
+                auto execution_result = move_group->execute(cartesian_plan);
+
+                if (execution_result ==
+                    moveit::core::MoveItErrorCode::SUCCESS)
+                {
+                    RCLCPP_INFO(this->get_logger(), "执行成功");
+                    response->arm_status = true;
+                    response->message = "笛卡尔路径规划和执行成功";
+                }
+                else
+                {
+                    std::string error_explanation = getMoveItErrorString(execution_result);
+                    response->arm_status = false;
+                    response->message = "笛卡尔路径执行失败，错误码: " +
+                                        std::to_string(execution_result.val) +
+                                        " (" + error_explanation + ")";
+                    RCLCPP_ERROR(this->get_logger(), "%s",
+                                 response->message.c_str());
+                }
+                // ======= 新增结束 =======
+                std::cout << "\033[0m" << std::endl;
+            }
+            else
+            {
+                std::cout << "使用常规位姿规划" << std::endl;
+
+                bool planning_success = false;
+                std::string planning_message;
+
+                planning_success = plan_and_execute(move_group, planning_message);
+
+                response->arm_status = planning_success;
+                response->message = planning_message;
+            }
+        }
+        catch (const std::exception &e)
+        {
+            response->arm_status = false;
+            response->message = std::string("目标位姿控制异常: ") + e.what();
+            RCLCPP_ERROR(this->get_logger(), "%s", response->message.c_str());
+        }
+    }
+};
+
+int main(int argc, char **argv)
+{
+    rclcpp::init(argc, argv);
+
+    // 使用智能指针管理节点生命周期
+    auto node =
+        std::make_shared<FK_Control_Server>("moveit_controller_server_node");
+
+    // 处理来自ROS2的回调
+    RCLCPP_INFO(node->get_logger(), "开始接收服务请求...");
+    rclcpp::spin(node);
+
+    // 关闭ROS2系统
+    RCLCPP_INFO(node->get_logger(), "关闭节点");
+    rclcpp::shutdown();
+    return 0;
+}

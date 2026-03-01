@@ -1,0 +1,7 @@
+string arm_name
+geometry_msgs/Pose arm_target_pose
+float64[6] offset_param
+bool use_cartesian
+---
+bool arm_status
+string message

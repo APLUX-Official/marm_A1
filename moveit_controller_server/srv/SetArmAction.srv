@@ -1,0 +1,5 @@
+string arm_name
+string arm_action
+---
+bool arm_status
+string message

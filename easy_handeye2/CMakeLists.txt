@@ -1,0 +1,122 @@
+cmake_minimum_required(VERSION 3.8)
+project(easy_handeye2)
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+# C++17 standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Find dependencies
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(builtin_interfaces REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(yaml-cpp REQUIRED)
+find_package(Threads REQUIRED)
+
+# Generate srv interfaces within this package
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "srv/TakeSample.srv"
+  "srv/ComputeCalibration.srv"
+)
+
+# Include directories
+include_directories(
+  include
+  ${EIGEN3_INCLUDE_DIR}
+)
+
+# Library: handeye_calibration_core
+add_library(handeye_calibration_core SHARED
+  src/handeye_calibration.cpp
+  src/handeye_sampler.cpp
+  src/calibration_backend_opencv.cpp
+)
+target_include_directories(handeye_calibration_core PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+ament_target_dependencies(handeye_calibration_core
+  rclcpp
+  std_msgs
+  geometry_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+)
+# Link generated interfaces typesupport to the library
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
+target_link_libraries(handeye_calibration_core
+  ${cpp_typesupport_target}
+  yaml-cpp
+  Threads::Threads
+)
+
+# Executable: handeye_calibration_server
+add_executable(handeye_calibration_server
+  src/handeye_server_node.cpp
+)
+target_link_libraries(handeye_calibration_server
+  handeye_calibration_core
+)
+ament_target_dependencies(handeye_calibration_server
+  rclcpp
+  std_msgs
+  geometry_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+)
+
+# Install targets
+install(TARGETS
+  handeye_calibration_core
+  handeye_calibration_server
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION lib/${PROJECT_NAME}
+)
+
+# Install header files
+install(DIRECTORY include/
+  DESTINATION include
+)
+
+# Install config files
+install(DIRECTORY config/
+  DESTINATION share/${PROJECT_NAME}/config
+)
+
+# Install launch files
+install(DIRECTORY launch/
+  DESTINATION share/${PROJECT_NAME}/launch
+)
+
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
+endif()
+
+ament_export_include_directories(include)
+ament_export_libraries(handeye_calibration_core)
+ament_export_dependencies(
+  rclcpp
+  std_msgs
+  geometry_msgs
+  builtin_interfaces
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  rosidl_default_runtime
+)
+
+ament_package()

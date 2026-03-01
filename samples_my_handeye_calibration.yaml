@@ -1,0 +1,259 @@
+calibration_info:
+  name: my_handeye_calibration
+  eye_on_hand: true
+  robot_base_frame: base_footprint
+  robot_effector_frame: link5
+  tracking_base_frame: camera_color_optical_frame
+  tracking_marker_frame: object
+samples_count: 10
+samples:
+  - index: 0
+    robot_transform:
+      frame_id: base_footprint
+      child_frame_id: link5
+      translation:
+        x: 0.097370708134871337
+        y: -0.00024992310072409669
+        z: 0.1908495093348983
+      rotation:
+        x: 1.1940659313633924e-05
+        y: 0.50479930770118242
+        z: -5.4955667756068801e-05
+        w: 0.86323673217820285
+    optical_transform:
+      frame_id: camera_color_optical_frame
+      child_frame_id: object
+      translation:
+        x: 0.027070640150991695
+        y: 0.040102093649420155
+        z: 0.23981195933062899
+      rotation:
+        x: 0
+        y: 0
+        z: 0
+        w: 1
+  - index: 1
+    robot_transform:
+      frame_id: base_footprint
+      child_frame_id: link5
+      translation:
+        x: 0.12196222231982019
+        y: -0.0002358812280025408
+        z: 0.15735594805496439
+      rotation:
+        x: -4.4048597944157705e-05
+        y: 0.52612587014451806
+        z: 2.2065296627009701e-05
+        w: 0.85040670642788174
+    optical_transform:
+      frame_id: camera_color_optical_frame
+      child_frame_id: object
+      translation:
+        x: 0.027097152822768204
+        y: 0.034296255030818762
+        z: 0.20428317095567894
+      rotation:
+        x: 0
+        y: 0
+        z: 0
+        w: 1
+  - index: 2
+    robot_transform:
+      frame_id: base_footprint
+      child_frame_id: link5
+      translation:
+        x: 0.12828433944096107
+        y: -0.0002398263705792666
+        z: 0.16022552172771265
+      rotation:
+        x: -3.8645532966983176e-05
+        y: 0.55548535602782112
+        z: 1.4412934422473038e-05
+        w: 0.83152631800649279
+    optical_transform:
+      frame_id: camera_color_optical_frame
+      child_frame_id: object
+      translation:
+        x: 0.026714113517857636
+        y: 0.02366710556191557
+        z: 0.20023518764429729
+      rotation:
+        x: 0
+        y: 0
+        z: 0
+        w: 1
+  - index: 3
+    robot_transform:
+      frame_id: base_footprint
+      child_frame_id: link5
+      translation:
+        x: 0.1462145311487473
+        y: -0.00023659033430962697
+        z: 0.13256345385250654
+      rotation:
+        x: -1.1302246716578479e-06
+        y: 0.58652344671532719
+        z: -3.2902510368592242e-06
+        w: 0.8099322480560146
+    optical_transform:
+      frame_id: camera_color_optical_frame
+      child_frame_id: object
+      translation:
+        x: 0.026328458042281469
+        y: 0.012480289741194759
+        z: 0.16620094087828249
+      rotation:
+        x: 0
+        y: 0
+        z: 0
+        w: 1
+  - index: 4
+    robot_transform:
+      frame_id: base_footprint
+      child_frame_id: link5
+      translation:
+        x: 0.14475233917992511
+        y: -0.020525301919603438
+        z: 0.13257153207958985
+      rotation:
+        x: 0.040764480612657673
+        y: 0.58511362823654589
+        z: -0.056311602653264653
+        w: 0.80796615187696219
+    optical_transform:
+      frame_id: camera_color_optical_frame
+      child_frame_id: object
+      translation:
+        x: -0.0058148462830844606
+        y: 0.011842639194704265
+        z: 0.16712414536019476
+      rotation:
+        x: 0
+        y: 0
+        z: 0
+        w: 1
+  - index: 5
+    robot_transform:
+      frame_id: base_footprint
+      child_frame_id: link5
+      translation:
+        x: 0.14983641072562409
+        y: -0.021239954785116685
+        z: 0.12335008201744212
+      rotation:
+        x: 0.041236682409293859
+        y: 0.59205040974320167
+        z: -0.055952051127908284
+        w: 0.80289801115793158
+    optical_transform:
+      frame_id: camera_color_optical_frame
+      child_frame_id: object
+      translation:
+        x: -0.005879087688799421
+        y: 0.011758860382947657
+        z: 0.15527743982471595
+      rotation:
+        x: 0
+        y: 0
+        z: 0
+        w: 1
+  - index: 6
+    robot_transform:
+      frame_id: base_footprint
+      child_frame_id: link5
+      translation:
+        x: 0.11552982166171252
+        y: -0.016436448340964034
+        z: 0.19275516478927382
+      rotation:
+        x: 0.038655093288582812
+        y: 0.55404672710301395
+        z: -0.057869568573283792
+        w: 0.82957164909514081
+    optical_transform:
+      frame_id: camera_color_optical_frame
+      child_frame_id: object
+      translation:
+        x: -0.0049675576764373229
+        y: 0.021190904140257517
+        z: 0.22389965684060656
+      rotation:
+        x: 0
+        y: 0
+        z: 0
+        w: 1
+  - index: 7
+    robot_transform:
+      frame_id: base_footprint
+      child_frame_id: link5
+      translation:
+        x: 0.099320251890779823
+        y: -0.014171835068792273
+        z: 0.1841019924974544
+      rotation:
+        x: 0.033180816986426692
+        y: 0.47494173796996908
+        z: -0.061241126889493236
+        w: 0.87725646380946287
+    optical_transform:
+      frame_id: camera_color_optical_frame
+      child_frame_id: object
+      translation:
+        x: -0.0039068712026027116
+        y: 0.044185273445757033
+        z: 0.23248755417465561
+      rotation:
+        x: 0
+        y: 0
+        z: 0
+        w: 1
+  - index: 8
+    robot_transform:
+      frame_id: base_footprint
+      child_frame_id: link5
+      translation:
+        x: 0.08723644087883424
+        y: -0.012477341189083583
+        z: 0.17470774303007752
+      rotation:
+        x: 0.028364122727711709
+        y: 0.4060392448661041
+        z: -0.063604172977247866
+        w: 0.91119817677074599
+    optical_transform:
+      frame_id: camera_color_optical_frame
+      child_frame_id: object
+      translation:
+        x: -0.003195920132633704
+        y: 0.066793657887928765
+        z: 0.2366364833545494
+      rotation:
+        x: 0
+        y: 0
+        z: 0
+        w: 1
+  - index: 9
+    robot_transform:
+      frame_id: base_footprint
+      child_frame_id: link5
+      translation:
+        x: 0.10858856438182436
+        y: -0.015461311078469802
+        z: 0.14909711902718448
+      rotation:
+        x: 0.027417035531672379
+        y: 0.39343838258909547
+        z: -0.063922689863933652
+        w: 0.91671611472085013
+    optical_transform:
+      frame_id: camera_color_optical_frame
+      child_frame_id: object
+      translation:
+        x: -0.0028579243657105564
+        y: 0.077581314140893962
+        z: 0.20555631238441135
+      rotation:
+        x: 0
+        y: 0
+        z: 0
+        w: 1

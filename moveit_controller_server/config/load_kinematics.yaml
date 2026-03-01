@@ -1,0 +1,34 @@
+# 运动学配置文件 - 确保与A1_moveit_config中的配置一致
+robot_description_kinematics:
+  marm_group:
+  #trac_ik_kinematics_plugin/TRAC_IKKinematicsPlugin
+  #kdl_kinematics_plugin/KDLKinematicsPlugin
+    kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
+    kinematics_solver_search_resolution: 0.001
+    kinematics_solver_timeout: 0.01
+    kinematics_solver_attempts: 3
+    # position_only_ik: false
+    # solve_type: "Speed"
+
+# MoveIt运动参数配置
+moveit_planning:
+  velocity_scaling_factor: 0.4
+  acceleration_scaling_factor: 0.2
+  planning_time: 0.2
+  planning_attempts: 50
+  goal_position_tolerance: 0.001
+  goal_orientation_tolerance: 0.01
+
+# 抓取位置微调参数（单位：米）
+# 用于补偿手眼标定误差或物体识别偏差
+grasp_offset:
+  x: 0.01        # X方向偏移（正值表示往前）
+  y: 0.0         # Y方向偏移（正值表示往左）
+  z: -0.02        # Z方向偏移（正值表示往上）
+
+# 抓取重试参数
+grasp_retry:
+  enabled: true           # 是否启用抓取验证和重试
+  max_retries: 3          # 最大重试次数
+  x_adjust_step: 0.01     # 每次重试X方向调整量（单位：米，正值表示往前）
+  detection_timeout: 2.0  # 检测物体的超时时间（秒）

@@ -1,0 +1,25 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: A1_description
+    relative_path: urdf/A1_description.urdf
+  srdf:
+    relative_path: config/A1_description.srdf
+  package_settings:
+    author_name: evo
+    author_email: evo@gg.com
+    generated_timestamp: 1756840132
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
